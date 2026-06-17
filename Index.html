@@ -1,0 +1,601 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Spacetime Simulation: Black Holes & Wormholes</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { margin: 0; overflow: hidden; background-color: #050505; color: #e2e8f0; font-family: 'Courier New', Courier, monospace; }
+        canvas { display: block; width: 100vw; height: 100vh; }
+        .control-panel {
+            background: rgba(15, 23, 42, 0.85);
+            backdrop-filter: blur(8px);
+            border-right: 1px solid #1e293b;
+        }
+        .slider-custom {
+            -webkit-appearance: none;
+            width: 100%;
+            height: 4px;
+            background: #334155;
+            border-radius: 2px;
+            outline: none;
+        }
+        .slider-custom::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            background: #38bdf8;
+            cursor: pointer;
+            box-shadow: 0 0 10px #38bdf8;
+        }
+        .btn {
+            transition: all 0.2s ease;
+        }
+        .btn:active {
+            transform: scale(0.95);
+        }
+        .active-mode {
+            background-color: #0ea5e9;
+            color: #0f172a;
+            border-color: #38bdf8;
+            box-shadow: 0 0 15px rgba(56, 189, 248, 0.5);
+        }
+        
+        /* CRT Scanline effect */
+        .scanlines::before {
+            content: " ";
+            display: block;
+            position: absolute;
+            top: 0;
+            left: 0;
+            bottom: 0;
+            right: 0;
+            background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%), linear-gradient(90deg, rgba(255, 0, 0, 0.06), rgba(0, 255, 0, 0.02), rgba(0, 0, 255, 0.06));
+            z-index: 10;
+            background-size: 100% 2px, 3px 100%;
+            pointer-events: none;
+        }
+    </style>
+</head>
+<body class="flex h-screen w-screen relative scanlines">
+
+    <!-- Sidebar Controls -->
+    <div class="control-panel w-80 h-full absolute top-0 left-0 z-20 flex flex-col p-6 shadow-2xl overflow-y-auto">
+        <div class="mb-8">
+            <h1 class="text-2xl font-bold text-sky-400 tracking-wider mb-1">ASTRO-SIM v2.4</h1>
+            <p class="text-xs text-slate-400 uppercase tracking-widest">Spacetime Topography Engine</p>
+        </div>
+
+        <div class="mb-6">
+            <h2 class="text-sm font-semibold text-slate-300 mb-3 uppercase tracking-wider">Simulation Mode</h2>
+            <div class="flex flex-col gap-3">
+                <button id="btnBlackHole" class="btn active-mode border border-sky-600 rounded px-4 py-2 text-sm font-bold tracking-wide">
+                    Singular Black Hole
+                </button>
+                <button id="btnWormhole" class="btn bg-slate-800 border border-slate-600 hover:border-purple-500 hover:text-purple-400 rounded px-4 py-2 text-sm font-bold tracking-wide text-slate-300">
+                    Einstein-Rosen Bridge
+                </button>
+            </div>
+        </div>
+
+        <div class="space-y-6 flex-grow">
+            <div>
+                <div class="flex justify-between mb-1">
+                    <label class="text-xs text-slate-400 uppercase">Mass (M☉)</label>
+                    <span id="massValue" class="text-xs text-sky-400 font-bold">100</span>
+                </div>
+                <input type="range" id="massSlider" min="10" max="500" value="100" class="slider-custom">
+            </div>
+
+            <div>
+                <div class="flex justify-between mb-1">
+                    <label class="text-xs text-slate-400 uppercase">Grid Distortion</label>
+                    <span id="gridValue" class="text-xs text-sky-400 font-bold">Medium</span>
+                </div>
+                <input type="range" id="gridSlider" min="0" max="100" value="50" class="slider-custom">
+            </div>
+            
+            <div id="wormholeControls" class="hidden">
+                <div class="flex justify-between mb-1">
+                    <label class="text-xs text-slate-400 uppercase">Throat Length (Distance)</label>
+                </div>
+                <input type="range" id="distanceSlider" min="200" max="800" value="500" class="slider-custom">
+            </div>
+
+            <div class="border-t border-slate-700 pt-4 mt-4">
+                <h2 class="text-sm font-semibold text-slate-300 mb-3 uppercase tracking-wider">Actions</h2>
+                <button id="btnAddDisk" class="btn w-full bg-slate-800 hover:bg-slate-700 border border-slate-600 rounded px-4 py-2 text-sm text-sky-300 mb-2">
+                    Inject Accretion Matter
+                </button>
+                <button id="btnClear" class="btn w-full bg-slate-800 hover:bg-red-900/50 border border-slate-600 hover:border-red-500 rounded px-4 py-2 text-sm text-red-400">
+                    Purge Particles
+                </button>
+            </div>
+            
+            <div class="border-t border-slate-700 pt-4 mt-4 text-xs text-slate-400 space-y-2">
+                <p><strong>Left Click:</strong> Launch test probe</p>
+                <p><strong>Drag:</strong> Fire probe with velocity</p>
+            </div>
+        </div>
+
+        <div class="mt-auto border-t border-slate-700 pt-4">
+            <h3 class="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Telemetry</h3>
+            <div class="grid grid-cols-2 gap-2 text-xs">
+                <div class="bg-slate-800/50 p-2 rounded">
+                    <span class="block text-slate-500">FPS</span>
+                    <span id="fpsDisplay" class="text-sky-400 font-mono text-sm">60</span>
+                </div>
+                <div class="bg-slate-800/50 p-2 rounded">
+                    <span class="block text-slate-500">Entities</span>
+                    <span id="entityDisplay" class="text-sky-400 font-mono text-sm">0</span>
+                </div>
+                <div class="bg-slate-800/50 p-2 rounded col-span-2">
+                    <span class="block text-slate-500">Event Horizon R_s</span>
+                    <span id="rsDisplay" class="text-orange-400 font-mono text-sm">0.00 AU</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Canvas Container -->
+    <canvas id="simCanvas"></canvas>
+
+    <script>
+        const canvas = document.getElementById('simCanvas');
+        const ctx = canvas.getContext('2d');
+        
+        // Simulation Parameters
+        let G = 0.5; // Gravitational constant for simulation purposes
+        let mode = 'blackhole'; // 'blackhole' or 'wormhole'
+        let C = 20; // Speed of light threshold for visuals
+        
+        let width, height;
+        let particles = [];
+        let blackHoles = [];
+        let grid = [];
+        
+        // State tracking
+        let isDragging = false;
+        let dragStart = { x: 0, y: 0 };
+        let mousePos = { x: 0, y: 0 };
+        
+        // Metrics
+        let lastTime = 0;
+        let frameCount = 0;
+        let fps = 0;
+
+        // UI Elements
+        const btnBlackHole = document.getElementById('btnBlackHole');
+        const btnWormhole = document.getElementById('btnWormhole');
+        const massSlider = document.getElementById('massSlider');
+        const gridSlider = document.getElementById('gridSlider');
+        const distanceSlider = document.getElementById('distanceSlider');
+        const wormholeControls = document.getElementById('wormholeControls');
+        
+        // Initialization
+        function resize() {
+            width = canvas.width = window.innerWidth;
+            height = canvas.height = window.innerHeight;
+            initGrid();
+            setupBodies();
+        }
+
+        window.addEventListener('resize', resize);
+
+        class BlackHole {
+            constructor(x, y, mass, isEntrance = true, linkedTo = null) {
+                this.x = x;
+                this.y = y;
+                this.mass = mass;
+                this.rs = (2 * G * this.mass) / (C * 0.1); // Schwarzschild radius approximation
+                this.isEntrance = isEntrance; // For wormhole distinction
+                this.linkedTo = linkedTo;
+                this.color = this.isEntrance ? 'rgba(0, 0, 0, 1)' : 'rgba(0, 0, 0, 1)';
+                this.glow = this.isEntrance ? 'rgba(56, 189, 248,' : 'rgba(168, 85, 247,'; // Blue vs Purple
+            }
+
+            updateMass(newMass) {
+                this.mass = newMass;
+                this.rs = (2 * G * this.mass) / (C * 0.1);
+            }
+
+            draw() {
+                // Photon ring glow
+                const gradient = ctx.createRadialGradient(this.x, this.y, this.rs * 0.8, this.x, this.y, this.rs * 3);
+                gradient.addColorStop(0, 'rgba(0,0,0,1)');
+                gradient.addColorStop(0.3, `${this.glow} 0.8)`);
+                gradient.addColorStop(0.6, `${this.glow} 0.2)`);
+                gradient.addColorStop(1, 'rgba(0,0,0,0)');
+
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.rs * 3, 0, Math.PI * 2);
+                ctx.fillStyle = gradient;
+                ctx.fill();
+
+                // Event Horizon (Absolute Black)
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.rs, 0, Math.PI * 2);
+                ctx.fillStyle = '#000000';
+                ctx.fill();
+                
+                // Lensing distortion ring visual
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.rs * 1.5, 0, Math.PI * 2);
+                ctx.strokeStyle = `rgba(255, 255, 255, 0.1)`;
+                ctx.lineWidth = 1;
+                ctx.stroke();
+            }
+        }
+
+        class Particle {
+            constructor(x, y, vx, vy, isProbe = false) {
+                this.x = x;
+                this.y = y;
+                this.vx = vx;
+                this.vy = vy;
+                this.isProbe = isProbe;
+                this.history = [];
+                this.color = isProbe ? '#10b981' : '#f59e0b'; // Emerald probe, Amber matter
+                this.active = true;
+            }
+
+            update() {
+                if (!this.active) return;
+
+                // Record history for trails
+                this.history.push({x: this.x, y: this.y});
+                if (this.history.length > (this.isProbe ? 40 : 15)) {
+                    this.history.shift();
+                }
+
+                // Gravity
+                for (let bh of blackHoles) {
+                    let dx = bh.x - this.x;
+                    let dy = bh.y - this.y;
+                    let distSq = dx * dx + dy * dy;
+                    let dist = Math.sqrt(distSq);
+
+                    // Event Horizon check
+                    if (dist < bh.rs) {
+                        if (mode === 'wormhole' && bh.linkedTo) {
+                            // Transit through Wormhole
+                            this.x = bh.linkedTo.x + (dx / dist) * bh.linkedTo.rs * 1.1; // Exit just outside linked rs
+                            this.y = bh.linkedTo.y + (dy / dist) * bh.linkedTo.rs * 1.1;
+                            
+                            // Eject outward
+                            let speed = Math.sqrt(this.vx * this.vx + this.vy * this.vy);
+                            this.vx = -(dx / dist) * Math.max(speed, 5);
+                            this.vy = -(dy / dist) * Math.max(speed, 5);
+                            this.history = []; // Clear trail on transit
+                            this.color = '#c084fc'; // Change color to purple after transit
+                            continue;
+                        } else {
+                            // Spaghettification & Absorption
+                            this.active = false;
+                            return;
+                        }
+                    }
+
+                    // Relativistic-ish gravity approximation (stronger near horizon)
+                    let force = (G * bh.mass) / (distSq);
+                    
+                    // Add slight relativistic precession/drag for non-probes to form accretion disks
+                    if(!this.isProbe && dist < bh.rs * 8) {
+                        let drag = 0.998;
+                        this.vx *= drag;
+                        this.vy *= drag;
+                    }
+
+                    this.vx += (dx / dist) * force;
+                    this.vy += (dy / dist) * force;
+                }
+
+                // Velocity limits
+                let currentSpeed = Math.sqrt(this.vx * this.vx + this.vy * this.vy);
+                if (currentSpeed > C) {
+                    this.vx = (this.vx / currentSpeed) * C;
+                    this.vy = (this.vy / currentSpeed) * C;
+                }
+
+                this.x += this.vx;
+                this.y += this.vy;
+
+                // Boundary kill (if way off screen)
+                if (this.x < -1000 || this.x > width + 1000 || this.y < -1000 || this.y > height + 1000) {
+                    this.active = false;
+                }
+            }
+
+            draw() {
+                if (!this.active) return;
+
+                // Draw trail
+                if (this.history.length > 1) {
+                    ctx.beginPath();
+                    ctx.moveTo(this.history[0].x, this.history[0].y);
+                    for (let i = 1; i < this.history.length; i++) {
+                        ctx.lineTo(this.history[i].x, this.history[i].y);
+                    }
+                    ctx.strokeStyle = this.isProbe ? `rgba(16, 185, 129, 0.4)` : `rgba(245, 158, 11, 0.2)`;
+                    ctx.lineWidth = this.isProbe ? 2 : 1;
+                    ctx.stroke();
+                }
+
+                // Draw particle
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.isProbe ? 2.5 : 1.5, 0, Math.PI * 2);
+                ctx.fillStyle = this.color;
+                ctx.shadowBlur = 10;
+                ctx.shadowColor = this.color;
+                ctx.fill();
+                ctx.shadowBlur = 0; // reset
+            }
+        }
+
+        // Spacetime Grid Generation
+        function initGrid() {
+            grid = [];
+            const spacing = 40;
+            for (let x = 0; x <= width; x += spacing) {
+                for (let y = 0; y <= height; y += spacing) {
+                    grid.push({ bx: x, by: y, x: x, y: y });
+                }
+            }
+        }
+
+        function drawGrid() {
+            let distortionLvl = parseInt(gridSlider.value) / 100;
+            if(distortionLvl === 0) return;
+
+            ctx.strokeStyle = `rgba(56, 189, 248, ${0.1 * distortionLvl})`;
+            ctx.lineWidth = 1;
+            
+            // Calculate warped positions
+            for (let point of grid) {
+                let dx_total = 0;
+                let dy_total = 0;
+
+                for(let bh of blackHoles) {
+                    let dx = point.bx - bh.x;
+                    let dy = point.by - bh.y;
+                    let distSq = dx * dx + dy * dy;
+                    let dist = Math.max(Math.sqrt(distSq), bh.rs); // Cap distortion at horizon
+
+                    // Distortion magnitude decreases with distance
+                    let warp = (bh.mass * 30 * distortionLvl) / dist; 
+                    
+                    // Pull points towards the mass
+                    dx_total -= (dx / dist) * warp;
+                    dy_total -= (dy / dist) * warp;
+                }
+
+                point.x = point.bx + dx_total;
+                point.y = point.by + dy_total;
+            }
+
+            // Draw horizontal and vertical lines
+            ctx.beginPath();
+            const cols = Math.floor(height / 40) + 1;
+            const rows = Math.floor(width / 40) + 1;
+            
+            // We approximate drawing the mesh. For performance, we just draw dots or simple lines.
+            // A full mesh requires mapping indices.
+            for (let i = 0; i < grid.length; i++) {
+                // To right
+                if (i + cols < grid.length) {
+                    ctx.moveTo(grid[i].x, grid[i].y);
+                    ctx.lineTo(grid[i+cols].x, grid[i+cols].y);
+                }
+                // To down
+                if ((i + 1) % cols !== 0 && i + 1 < grid.length) {
+                    ctx.moveTo(grid[i].x, grid[i].y);
+                    ctx.lineTo(grid[i+1].x, grid[i+1].y);
+                }
+            }
+            ctx.stroke();
+        }
+
+        function setupBodies() {
+            blackHoles = [];
+            let currentMass = parseInt(massSlider.value);
+            // Center of the playable area (offset by sidebar width)
+            let centerX = width/2 + 160; 
+            let centerY = height/2;
+
+            if (mode === 'blackhole') {
+                blackHoles.push(new BlackHole(centerX, centerY, currentMass));
+                document.getElementById('rsDisplay').innerText = blackHoles[0].rs.toFixed(2) + " AU";
+            } else {
+                let dist = parseInt(distanceSlider.value);
+                let xA = centerX - dist/2;
+                let xB = centerX + dist/2;
+                
+                let bhA = new BlackHole(xA, centerY, currentMass, true);
+                let bhB = new BlackHole(xB, centerY, currentMass, false);
+                bhA.linkedTo = bhB;
+                bhB.linkedTo = bhA;
+                
+                blackHoles.push(bhA);
+                blackHoles.push(bhB);
+                document.getElementById('rsDisplay').innerText = bhA.rs.toFixed(2) + " AU (Connected)";
+            }
+        }
+
+        // Input Handling
+        canvas.addEventListener('mousedown', (e) => {
+            isDragging = true;
+            dragStart.x = e.clientX;
+            dragStart.y = e.clientY;
+            mousePos.x = e.clientX;
+            mousePos.y = e.clientY;
+        });
+
+        canvas.addEventListener('mousemove', (e) => {
+            mousePos.x = e.clientX;
+            mousePos.y = e.clientY;
+        });
+
+        canvas.addEventListener('mouseup', (e) => {
+            if (isDragging) {
+                // Launch probe
+                let dx = dragStart.x - e.clientX;
+                let dy = dragStart.y - e.clientY;
+                // Scale down velocity for control
+                let vx = dx * 0.05; 
+                let vy = dy * 0.05;
+                
+                // If just clicked (no drag), assign a small random velocity
+                if (Math.abs(dx) < 2 && Math.abs(dy) < 2) {
+                    vx = (Math.random() - 0.5) * 2;
+                    vy = (Math.random() - 0.5) * 2;
+                }
+
+                particles.push(new Particle(dragStart.x, dragStart.y, vx, vy, true));
+            }
+            isDragging = false;
+        });
+
+        // UI Listeners
+        btnBlackHole.addEventListener('click', () => {
+            mode = 'blackhole';
+            btnBlackHole.classList.add('active-mode', 'border-sky-600');
+            btnBlackHole.classList.remove('bg-slate-800', 'border-slate-600', 'text-slate-300');
+            
+            btnWormhole.classList.remove('active-mode', 'border-purple-500', 'text-purple-400', 'bg-slate-800');
+            btnWormhole.classList.add('bg-slate-800', 'border-slate-600', 'text-slate-300');
+            
+            wormholeControls.classList.add('hidden');
+            setupBodies();
+            particles = []; // Clear particles on mode switch
+        });
+
+        btnWormhole.addEventListener('click', () => {
+            mode = 'wormhole';
+            btnWormhole.classList.add('active-mode', 'border-purple-500');
+            btnWormhole.classList.remove('bg-slate-800', 'border-slate-600', 'text-slate-300');
+            btnWormhole.style.backgroundColor = '#8b5cf6';
+            btnWormhole.style.color = '#fff';
+            
+            btnBlackHole.classList.remove('active-mode', 'border-sky-600');
+            btnBlackHole.classList.add('bg-slate-800', 'border-slate-600', 'text-slate-300');
+            
+            wormholeControls.classList.remove('hidden');
+            setupBodies();
+            particles = [];
+        });
+
+        massSlider.addEventListener('input', (e) => {
+            document.getElementById('massValue').innerText = e.target.value;
+            for(let bh of blackHoles) {
+                bh.updateMass(parseInt(e.target.value));
+            }
+            if(blackHoles.length > 0) {
+                document.getElementById('rsDisplay').innerText = blackHoles[0].rs.toFixed(2) + " AU" + (mode==='wormhole'?' (Connected)':'');
+            }
+        });
+
+        gridSlider.addEventListener('input', (e) => {
+            let val = e.target.value;
+            let text = "Low";
+            if (val > 30) text = "Medium";
+            if (val > 70) text = "High";
+            document.getElementById('gridValue').innerText = text;
+        });
+
+        distanceSlider.addEventListener('input', () => {
+            if(mode === 'wormhole') setupBodies();
+        });
+
+        document.getElementById('btnClear').addEventListener('click', () => {
+            particles = [];
+        });
+
+        document.getElementById('btnAddDisk').addEventListener('click', () => {
+            let bh = blackHoles[0]; // Add around the primary blackhole
+            let amount = 300;
+            
+            for(let i=0; i<amount; i++) {
+                // Random position in an annulus
+                let angle = Math.random() * Math.PI * 2;
+                let dist = bh.rs * 3 + Math.random() * bh.rs * 5;
+                
+                let px = bh.x + Math.cos(angle) * dist;
+                let py = bh.y + Math.sin(angle) * dist;
+                
+                // Orbital velocity v = sqrt(GM/r)
+                let v = Math.sqrt((G * bh.mass) / dist);
+                // Tangential vector
+                let vx = -Math.sin(angle) * v;
+                let vy = Math.cos(angle) * v;
+                
+                // Add slight randomness
+                vx += (Math.random() - 0.5) * 0.5;
+                vy += (Math.random() - 0.5) * 0.5;
+
+                particles.push(new Particle(px, py, vx, vy, false));
+            }
+        });
+
+        // Main Animation Loop
+        function animate(timestamp) {
+            // FPS calculation
+            frameCount++;
+            if (timestamp - lastTime >= 1000) {
+                fps = frameCount;
+                frameCount = 0;
+                lastTime = timestamp;
+                document.getElementById('fpsDisplay').innerText = fps;
+                document.getElementById('entityDisplay').innerText = particles.length;
+            }
+
+            // Clear screen with fade for motion blur effect on grid
+            ctx.fillStyle = 'rgba(5, 5, 5, 0.4)';
+            ctx.fillRect(0, 0, width, height);
+
+            drawGrid();
+
+            // Draw dragging vector line
+            if (isDragging) {
+                ctx.beginPath();
+                ctx.moveTo(dragStart.x, dragStart.y);
+                ctx.lineTo(mousePos.x, mousePos.y);
+                ctx.strokeStyle = '#10b981';
+                ctx.setLineDash([5, 5]);
+                ctx.stroke();
+                ctx.setLineDash([]);
+                
+                // Draw mock probe
+                ctx.beginPath();
+                ctx.arc(dragStart.x, dragStart.y, 2.5, 0, Math.PI*2);
+                ctx.fillStyle = '#10b981';
+                ctx.fill();
+            }
+
+            // Update & Draw Particles
+            for (let i = particles.length - 1; i >= 0; i--) {
+                let p = particles[i];
+                p.update();
+                p.draw();
+                if (!p.active) {
+                    particles.splice(i, 1);
+                }
+            }
+
+            // Draw Black Holes / Wormholes
+            for (let bh of blackHoles) {
+                bh.draw();
+            }
+
+            requestAnimationFrame(animate);
+        }
+
+        // Boot sequence
+        resize();
+        animate(0);
+
+    </script>
+</body>
+</html>
